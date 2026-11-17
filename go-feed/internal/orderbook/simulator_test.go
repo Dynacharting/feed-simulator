@@ -126,22 +126,83 @@ func TestStepValidTypes(t *testing.T) {
 	}
 }
 
-func TestTradeExecutedPairing(t *testing.T) {
+// A displayed fill is E only: no P, and no two messages share a match number.
+func TestFillEmitsExecutedOnly(t *testing.T) {
 	sim := newTestSimulator()
 	sim.Initialize(100.00)
-	// Run many steps and check that E and P come in pairs with same match number
+	seen := map[uint64]bool{}
+	execs := 0
 	for i := 0; i < 500; i++ {
-		msgs := sim.Step(100.00, 3)
-		for j := 0; j < len(msgs); j++ {
-			if msgs[j].Type == itch.MsgOrderExecuted {
-				if j+1 >= len(msgs) || msgs[j+1].Type != itch.MsgTrade {
-					t.Fatal("OrderExecuted not followed by Trade")
-				}
-				if msgs[j].MatchNumber != msgs[j+1].MatchNumber {
-					t.Fatalf("match number mismatch: executed=%d trade=%d", msgs[j].MatchNumber, msgs[j+1].MatchNumber)
-				}
+		for _, m := range sim.Step(100.00, 3) {
+			if m.Type == itch.MsgTrade {
+				t.Fatalf("Step emitted a P (trade) for a displayed fill: %+v", m)
+			}
+			if m.Type != itch.MsgOrderExecuted {
+				continue
+			}
+			execs++
+			if seen[m.MatchNumber] {
+				t.Fatalf("match number %d reported twice", m.MatchNumber)
+			}
+			seen[m.MatchNumber] = true
+			if m.Aggressor != byte(SideBuy) && m.Aggressor != byte(SideSell) {
+				t.Fatalf("E without aggressor side: %+v", m)
+			}
+			if m.Price <= 0 || m.Shares <= 0 {
+				t.Fatalf("E without price/shares: %+v", m)
+			}
+			if m.ExecGroup == 0 {
+				t.Fatalf("E without ExecGroup: %+v", m)
 			}
 		}
+	}
+	if execs == 0 {
+		t.Fatal("no executions in 500 steps; test proves nothing")
+	}
+}
+
+// Partial cancels are X with the cancelled shares, leaving the order resting
+// with the remainder; full cancels stay D and remove the order.
+func TestPartialCancelEmitsX(t *testing.T) {
+	sim := newTestSimulator()
+	sim.Initialize(100.00)
+	xs, ds := 0, 0
+	for i := 0; i < 2000; i++ {
+		// Snapshot shares before the action so X can be checked against it.
+		before := map[uint64]int32{}
+		for _, o := range sim.book.orderMap {
+			before[o.ID] = o.Shares
+		}
+		for _, m := range sim.doCancel() {
+			switch m.Type {
+			case itch.MsgOrderCancel:
+				xs++
+				prev, ok := before[m.OrderRef]
+				if !ok {
+					t.Fatalf("X for unknown order %d", m.OrderRef)
+				}
+				if m.Shares <= 0 || m.Shares%100 != 0 || m.Shares >= prev {
+					t.Fatalf("X cancelled %d of %d shares; want whole lots, leaving >= 1 lot", m.Shares, prev)
+				}
+				o := sim.book.GetOrder(m.OrderRef)
+				if o == nil || o.Shares != prev-m.Shares {
+					t.Fatalf("after X order %d should rest with %d shares, got %+v", m.OrderRef, prev-m.Shares, o)
+				}
+			case itch.MsgOrderDelete:
+				ds++
+				if sim.book.GetOrder(m.OrderRef) != nil {
+					t.Fatalf("order %d still resting after D", m.OrderRef)
+				}
+			default:
+				t.Fatalf("doCancel emitted %c", m.Type)
+			}
+		}
+		// Keep the book populated.
+		sim.doAdd(100.00)
+		sim.doReplenish(100.00)
+	}
+	if xs == 0 || ds == 0 {
+		t.Fatalf("want both partial (X) and full (D) cancels, got X=%d D=%d", xs, ds)
 	}
 }
 
