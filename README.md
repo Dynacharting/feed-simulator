@@ -109,15 +109,15 @@ allow-list, the `before` cursor, `fill=zero`, and the 1000-row clamp all apply a
 | `stock_directory` | `stockLocate`, `stock`, `marketCategory`, ... | Symbol metadata (sent once on subscribe) |
 | `add_order` | `orderRef`, `side`, `shares`, `price`, `stock` | New limit order placed |
 | `add_order_mpid` | Same + `mpid` | New order attributed to a market maker |
-| `order_executed` | `orderRef`, `shares`, `matchNumber` | Passive order filled |
+| `order_executed` | `orderRef`, `shares`, `matchNumber` | A resting (displayed) order filled — the only message a fill produces |
 | `order_cancel` | `orderRef`, `shares` | Partial cancellation |
 | `order_delete` | `orderRef` | Full order removal |
 | `order_replace` | `origOrderRef`, `orderRef`, `shares`, `price` | Price/size modification |
-| `trade` | `orderRef`, `side`, `shares`, `price`, `matchNumber` | Aggressive trade execution |
+| `trade` | `orderRef`, `side`, `shares`, `price`, `matchNumber` | Non-displayed execution (ITCH `P`). Defined in the protocol; the simulator holds only displayed orders, so it never emits one |
 | `system_event` | `eventCode` | Market lifecycle events |
 | `stock_trading_action` | `stock`, `tradingState` | Halt/resume notifications |
 
-All messages include `timestamp` (nanoseconds since midnight UTC) and `stockLocate`.
+All messages include `timestamp` (nanoseconds since midnight UTC) and `stockLocate`. Each message carries its own timestamp, non-decreasing along a connection's stream; the executions of one aggressive order share one.
 
 
 ### REST API Reference
@@ -361,7 +361,7 @@ Each tick, the simulator performs 1-10 weighted random actions on the book:
 | Action | Weight | Description |
 |--------|--------|-------------|
 | Add | 30% | New limit order 1-10 ticks from mid |
-| Cancel | 20% | Remove a random existing order |
+| Cancel | 20% | Cancel a random existing order: 35% of multi-lot orders are partially cancelled (`order_cancel`), the rest removed (`order_delete`) |
 | Replace | 15% | Modify price/size of a random order |
 | Trade | 15% | Aggressive cross of the spread |
 | Replenish | 20% | Add liquidity 1-5 ticks from mid |
@@ -370,7 +370,7 @@ The book maintains 10 price levels per side with price-time priority. Orders are
 
 ### Trade Persistence
 
-Trade messages produced by `Simulator.Step()` are sent through a bounded channel (`chan tradeRecord`, capacity 4096) to 2 writer goroutines. This caps the number of concurrent database connections used for trade inserts at 2 (out of 10 in the pool), preventing goroutine pileup during BLITZ burst phases.
+One trade record per fill — per `order_executed` produced by `Simulator.Step()`, with the aggressor side and price the simulator attaches internally — is sent through a bounded channel (`chan tradeRecord`, capacity 4096) to 2 writer goroutines. This caps the number of concurrent database connections used for trade inserts at 2 (out of 10 in the pool), preventing goroutine pileup during BLITZ burst phases.
 
 If the channel buffer fills (sustained burst exceeding write throughput), trades are silently dropped rather than blocking the ticker loop. This is a deliberate trade-off — the simulator prioritizes real-time feed latency over trade log completeness.
 
