@@ -145,6 +145,28 @@ func (s *Simulator) Step(currentPrice float64, numActions int) []itch.Message {
 	return append(msgs, s.stepRegimes(currentPrice)...)
 }
 
+// clampPassive keeps a resting order from crossing the opposite side of the
+// book. Resting orders are priced off the random walk (currentPrice), which
+// drifts away from the book between trades, so an unchecked buy can land at or
+// above the best ask (and a sell at or below the best bid) and leave the book
+// crossed. A buy at or through the ask is pulled back to one tick under it, a
+// sell at or through the bid to one tick over it; either may then join the
+// touch on its own side. The result never goes below one tick. Aggression is
+// the job of the explicit trade and sweep paths, never of a resting order.
+func (s *Simulator) clampPassive(side Side, price float64) float64 {
+	if side == SideBuy {
+		if ask := s.book.BestAsk(); ask > 0 && price >= ask-s.tickSize/2 {
+			price = snapPrice(ask-s.tickSize, s.tickSize)
+		}
+	} else if bid := s.book.BestBid(); bid > 0 && price <= bid+s.tickSize/2 {
+		price = snapPrice(bid+s.tickSize, s.tickSize)
+	}
+	if price < s.tickSize {
+		price = s.tickSize
+	}
+	return price
+}
+
 // doAdd places a new limit order 1-10 ticks from mid.
 func (s *Simulator) doAdd(currentPrice float64) []itch.Message {
 	side := SideBuy
@@ -162,6 +184,7 @@ func (s *Simulator) doAdd(currentPrice float64) []itch.Message {
 	if price < s.tickSize {
 		price = s.tickSize
 	}
+	price = s.clampPassive(side, price)
 
 	shares := int32(s.rng.IntRange(1, 10)) * 100
 
@@ -285,6 +308,7 @@ func (s *Simulator) doReplace(currentPrice float64) []itch.Message {
 	if newPrice < s.tickSize {
 		newPrice = s.tickSize
 	}
+	newPrice = s.clampPassive(o.Side, newPrice)
 	newShares := int32(s.rng.IntRange(1, 10)) * 100
 
 	newOrder, evicted := s.book.ReplaceOrderEvicting(oldID, newPrice, newShares)
@@ -365,6 +389,7 @@ func (s *Simulator) doReplenish(currentPrice float64) []itch.Message {
 	if price < s.tickSize {
 		price = s.tickSize
 	}
+	price = s.clampPassive(side, price)
 
 	shares := int32(s.rng.IntRange(2, 10)) * 100
 
