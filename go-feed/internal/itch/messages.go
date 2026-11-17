@@ -68,6 +68,18 @@ type Message struct {
 	ETPFlag             byte
 	ETPLeverageFactor   int32
 	InverseIndicator    byte
+
+	// Simulator-internal metadata. Neither field is ever encoded on the wire
+	// (EncodeJSON/EncodeBinary ignore them); they exist so the producer can tell
+	// the persistence path and the timestamper what the wire format cannot.
+
+	// Aggressor is the side ('B'/'S') of the aggressive order that caused an
+	// OrderExecuted. ITCH's E carries no side; the trade log needs one.
+	Aggressor byte
+	// ExecGroup, when non-zero, identifies the aggressive order an execution
+	// belongs to. Adjacent messages with the same non-zero ExecGroup are one
+	// matching event and share one timestamp (see Clock.Stamp).
+	ExecGroup uint64
 }
 
 // NanosFromMidnight returns the current nanoseconds since midnight UTC.
