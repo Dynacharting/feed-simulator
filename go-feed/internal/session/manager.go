@@ -16,6 +16,13 @@ type Manager struct {
 	symbols    []symbol.Symbol
 	byTicker   map[string]uint16 // ticker -> locate code
 	bufferSize int
+
+	// seqMu serialises stamp → encode → enqueue across every producer (the
+	// symbol runners broadcast concurrently). Holding it across all three is
+	// what makes each client's stream carry non-decreasing timestamps: a
+	// batch stamped later can never be enqueued ahead of one stamped earlier.
+	seqMu sync.Mutex
+	clock *itch.Clock
 }
 
 // NewManager creates a session manager.
@@ -29,6 +36,7 @@ func NewManager(syms []symbol.Symbol, bufferSize int) *Manager {
 		symbols:    syms,
 		byTicker:   byTicker,
 		bufferSize: bufferSize,
+		clock:      itch.NewClock(),
 	}
 }
 
@@ -75,10 +83,13 @@ func (m *Manager) Broadcast(locate uint16, stock string, msgs []itch.Message) {
 		return
 	}
 
-	// Stamp all messages with timestamp and stock
-	ts := itch.NanosFromMidnight()
+	m.seqMu.Lock()
+	defer m.seqMu.Unlock()
+
+	// Each message gets its own timestamp; the executions of one aggressive
+	// order share one (itch.Clock).
+	m.clock.Stamp(msgs)
 	for i := range msgs {
-		msgs[i].Timestamp = ts
 		if msgs[i].Stock == "" {
 			msgs[i].Stock = stock
 		}
@@ -123,10 +134,9 @@ func (m *Manager) Broadcast(locate uint16, stock string, msgs []itch.Message) {
 
 // SendToClient sends messages directly to a specific client (e.g., stock directory on connect).
 func (m *Manager) SendToClient(c *Client, msgs []itch.Message) {
-	ts := itch.NanosFromMidnight()
-	for i := range msgs {
-		msgs[i].Timestamp = ts
-	}
+	m.seqMu.Lock()
+	defer m.seqMu.Unlock()
+	m.clock.Stamp(msgs)
 
 	switch c.Format() {
 	case FormatJSON:

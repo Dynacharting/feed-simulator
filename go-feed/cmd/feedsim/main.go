@@ -272,25 +272,37 @@ type tradeRecord struct {
 	aggressor   byte
 }
 
-// enqueueTrades sends trade messages to the persistence channel.
-// Drops silently if the channel buffer is full (back-pressure).
+// enqueueTrades sends one trade record per fill to the persistence channel.
+// A fill is an OrderExecuted (E): the simulator reports a displayed execution
+// as E alone (no duplicate P), with the aggressor side and execution price on
+// the message's internal fields. Drops silently if the channel buffer is full
+// (back-pressure).
 func enqueueTrades(ch chan<- tradeRecord, locate uint16, msgs []itch.Message) {
-	for i := range msgs {
-		if msgs[i].Type != itch.MsgTrade {
-			continue
-		}
+	for _, tr := range tradeRecords(locate, msgs) {
 		select {
-		case ch <- tradeRecord{
-			matchNumber: msgs[i].MatchNumber,
-			locate:      locate,
-			price:       msgs[i].Price,
-			shares:      msgs[i].Shares,
-			aggressor:   msgs[i].Side,
-		}:
+		case ch <- tr:
 		default:
 			// buffer full — drop trade rather than block the ticker
 		}
 	}
+}
+
+// tradeRecords extracts exactly one trade record per fill from a batch.
+func tradeRecords(locate uint16, msgs []itch.Message) []tradeRecord {
+	var out []tradeRecord
+	for i := range msgs {
+		if msgs[i].Type != itch.MsgOrderExecuted {
+			continue
+		}
+		out = append(out, tradeRecord{
+			matchNumber: msgs[i].MatchNumber,
+			locate:      locate,
+			price:       msgs[i].Price,
+			shares:      msgs[i].Shares,
+			aggressor:   msgs[i].Aggressor,
+		})
+	}
+	return out
 }
 
 // tradeWriter drains the trade channel and writes to the DB.
