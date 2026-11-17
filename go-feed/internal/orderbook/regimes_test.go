@@ -309,8 +309,11 @@ func largeOutcomes(t *testing.T, all []itch.Message) (adds, filled, pulled int) 
 func TestLargeOrderSignature(t *testing.T) {
 	_, all := runStream(t, RegimeConfig{LargeRate: 0.02}, 6000, false)
 	adds, filled, pulled := largeOutcomes(t, all)
-	if adds < 20 || filled < 5 || pulled < 5 {
-		t.Fatalf("large regime: %d large adds, %d filled, %d pulled; want >= 20 adds and >= 5 of each end", adds, filled, pulled)
+	// Half the large orders are fated to trade away and half to be pulled.
+	// Ordinary flow fills some on its own (~1 in 5 when every one is fated
+	// to be pulled), so a third filled is what shows the fill path working.
+	if adds < 20 || 3*filled < adds || 4*pulled < adds {
+		t.Fatalf("large regime: %d large adds, %d filled, %d pulled; want >= 20 adds, >= 1/3 filled, >= 1/4 pulled", adds, filled, pulled)
 	}
 }
 

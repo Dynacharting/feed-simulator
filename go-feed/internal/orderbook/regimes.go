@@ -122,7 +122,7 @@ func (s *Simulator) stepRegimes(currentPrice float64) []itch.Message {
 		msgs = append(msgs, s.startLarge()...)
 	}
 	if s.roll(s.regimes.SweepRate) {
-		_ = s.doSweep
+		msgs = append(msgs, s.doSweep()...)
 	}
 	if s.roll(s.regimes.FleetingRate) {
 		msgs = append(msgs, s.doFleeting(currentPrice)...)
@@ -505,7 +505,7 @@ func (s *Simulator) largeStep() []itch.Message {
 	if lg.age < lg.lifetime {
 		return nil
 	}
-	if !lg.fill || lg.filling >= largeFillBudget {
+	if lg.filling >= largeFillBudget {
 		s.large = nil
 		s.book.RemoveOrder(lg.id)
 		return []itch.Message{{Type: itch.MsgOrderDelete, StockLocate: s.locateCode, OrderRef: lg.id}}
