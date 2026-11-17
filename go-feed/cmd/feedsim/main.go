@@ -42,6 +42,8 @@ func main() {
 	// PRNG
 	rng := engine.NewRNG(cfg.Seed)
 	log.Printf("PRNG seed: %d", cfg.Seed)
+	log.Printf("behaviour regimes (per-step rates): sweep=%g iceberg=%g fleeting=%g large=%g",
+		cfg.Regimes.SweepRate, cfg.Regimes.IcebergRate, cfg.Regimes.FleetingRate, cfg.Regimes.LargeRate)
 
 	// Symbols
 	syms := symbol.AllSymbols()
@@ -55,6 +57,7 @@ func main() {
 	for _, s := range syms {
 		book := orderbook.NewBook(s.LocateCode, s.TickSize)
 		sim := orderbook.NewSimulator(rng, book, s.LocateCode, s.TickSize)
+		sim.SetRegimes(cfg.Regimes)
 		books[s.LocateCode] = sim
 	}
 
