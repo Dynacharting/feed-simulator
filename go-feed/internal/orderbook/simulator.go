@@ -289,12 +289,12 @@ func (s *Simulator) doReplace(currentPrice float64) []itch.Message {
 
 	return []itch.Message{
 		{
-			Type:           itch.MsgOrderReplace,
-			StockLocate:    s.locateCode,
-			OrderRef:       newOrder.ID,
-			OrigOrderRef:   oldID,
-			Shares:         newShares,
-			Price:          newPrice,
+			Type:         itch.MsgOrderReplace,
+			StockLocate:  s.locateCode,
+			OrderRef:     newOrder.ID,
+			OrigOrderRef: oldID,
+			Shares:       newShares,
+			Price:        newPrice,
 		},
 	}
 }

@@ -6,52 +6,52 @@ import "time"
 type MsgType byte
 
 const (
-	MsgSystemEvent      MsgType = 'S'
-	MsgStockDirectory   MsgType = 'R'
+	MsgSystemEvent        MsgType = 'S'
+	MsgStockDirectory     MsgType = 'R'
 	MsgStockTradingAction MsgType = 'H'
-	MsgAddOrder         MsgType = 'A'
-	MsgAddOrderMPID     MsgType = 'F'
-	MsgOrderExecuted    MsgType = 'E'
-	MsgOrderCancel      MsgType = 'X'
-	MsgOrderDelete      MsgType = 'D'
-	MsgOrderReplace     MsgType = 'U'
-	MsgTrade            MsgType = 'P'
+	MsgAddOrder           MsgType = 'A'
+	MsgAddOrderMPID       MsgType = 'F'
+	MsgOrderExecuted      MsgType = 'E'
+	MsgOrderCancel        MsgType = 'X'
+	MsgOrderDelete        MsgType = 'D'
+	MsgOrderReplace       MsgType = 'U'
+	MsgTrade              MsgType = 'P'
 )
 
 // System event codes.
 const (
-	EventStartOfMessages  byte = 'O'
-	EventStartOfSystem    byte = 'S'
-	EventStartOfMarket    byte = 'Q'
-	EventEndOfMarket      byte = 'M'
-	EventEndOfSystem      byte = 'E'
-	EventEndOfMessages    byte = 'C'
+	EventStartOfMessages byte = 'O'
+	EventStartOfSystem   byte = 'S'
+	EventStartOfMarket   byte = 'Q'
+	EventEndOfMarket     byte = 'M'
+	EventEndOfSystem     byte = 'E'
+	EventEndOfMessages   byte = 'C'
 )
 
 // Trading state codes.
 const (
-	TradingHalted   byte = 'H'
-	TradingPaused   byte = 'P'
-	TradingResumed  byte = 'T' // trading/quoting
+	TradingHalted  byte = 'H'
+	TradingPaused  byte = 'P'
+	TradingResumed byte = 'T' // trading/quoting
 )
 
 // Message is the universal message struct used throughout the simulator.
 // Not all fields are used for every message type.
 type Message struct {
 	Type         MsgType
-	Timestamp    int64   // nanoseconds since midnight UTC
+	Timestamp    int64 // nanoseconds since midnight UTC
 	StockLocate  uint16
 	TrackingNum  uint16
-	Stock        string  // 8-char ticker
+	Stock        string // 8-char ticker
 	OrderRef     uint64
-	OrigOrderRef uint64  // for replace messages
-	Side         byte    // 'B' or 'S'
+	OrigOrderRef uint64 // for replace messages
+	Side         byte   // 'B' or 'S'
 	Shares       int32
 	Price        float64
 	MatchNumber  uint64
-	MPID         string  // 4-char market participant
-	EventCode    byte    // for system events
-	TradingState byte    // for trading action
+	MPID         string // 4-char market participant
+	EventCode    byte   // for system events
+	TradingState byte   // for trading action
 	Reserved     byte
 
 	// Stock Directory fields
