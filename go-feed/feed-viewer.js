@@ -28,6 +28,38 @@ const TYPE_COLOR = {
   stock_trading_action: MAGENTA,
 };
 
+// order_executed (E) carries no price, side or stock on the wire — faithful to
+// ITCH, where an execution names only the resting order. So the viewer keeps
+// its own map of the orders it has seen added, and prints each execution at
+// that order's price, with the aggressor (the side opposite the resting
+// order). An order that was resting before this connection opened has never
+// been seen, and its execution prints with '?' for price and side.
+const orders = new Map(); // orderRef -> { side, price, shares }
+
+function track(msg) {
+  switch (msg.type) {
+    case 'add_order':
+    case 'add_order_mpid':
+      orders.set(msg.orderRef, { side: msg.side, price: msg.price, shares: msg.shares });
+      break;
+    case 'order_replace': {
+      const o = orders.get(msg.origOrderRef);
+      orders.delete(msg.origOrderRef);
+      if (o) orders.set(msg.orderRef, { side: o.side, price: msg.price, shares: msg.shares });
+      break;
+    }
+    case 'order_executed':
+    case 'order_cancel': {
+      const o = orders.get(msg.orderRef);
+      if (o && (o.shares -= msg.shares) <= 0) orders.delete(msg.orderRef);
+      break;
+    }
+    case 'order_delete':
+      orders.delete(msg.orderRef);
+      break;
+  }
+}
+
 function fmtPrice(p) {
   return p != null ? Number(p).toFixed(2).padStart(10) : '       N/A';
 }
@@ -47,9 +79,12 @@ function fmt(msg) {
       parts.push(side(msg.side), `${CYAN}${String(msg.shares).padStart(6)}${RESET}`, '@', `${YELLOW}${fmtPrice(msg.price)}${RESET}`);
       if (msg.mpid) parts.push(`${DIM}${msg.mpid}${RESET}`);
       break;
-    case 'order_executed':
-      parts.push(`${CYAN}${String(msg.shares).padStart(6)}${RESET}`, 'filled', `${DIM}match=${msg.matchNumber}${RESET}`);
+    case 'order_executed': {
+      const o = orders.get(msg.orderRef);
+      const aggressor = o ? (o.side === 'B' ? 'S' : 'B') : null;
+      parts.push(aggressor ? side(aggressor) : `${DIM}   ?${RESET}`, `${CYAN}${String(msg.shares).padStart(6)}${RESET}`, '@', `${YELLOW}${fmtPrice(o && o.price)}${RESET}`, `${DIM}match=${msg.matchNumber}${RESET}`);
       break;
+    }
     case 'order_cancel':
       parts.push(`${CYAN}${String(msg.shares).padStart(6)}${RESET}`, 'cancelled');
       break;
@@ -84,7 +119,8 @@ ws.on('open', () => {
 
 ws.on('message', (data) => {
   const msg = JSON.parse(data);
-  console.log(fmt(msg));
+  console.log(fmt(msg)); // format first: an execution prints at its order's pre-fill state
+  track(msg);
 });
 
 ws.on('close', () => {

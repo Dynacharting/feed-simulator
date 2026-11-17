@@ -143,12 +143,21 @@ func (b *Book) ReduceOrder(orderID uint64, reduceBy int32) int32 {
 
 // ReplaceOrder replaces an order with a new price/size. Returns the new order.
 func (b *Book) ReplaceOrder(oldID uint64, newPrice float64, newShares int32) *Order {
+	o, _ := b.ReplaceOrderEvicting(oldID, newPrice, newShares)
+	return o
+}
+
+// ReplaceOrderEvicting is ReplaceOrder that also returns the orders the
+// replacement's insert trimmed off the book (possibly the replacement itself),
+// so the caller can publish their deletes — the replace counterpart of
+// AddOrder's return value.
+func (b *Book) ReplaceOrderEvicting(oldID uint64, newPrice float64, newShares int32) (*Order, []*Order) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	old, ok := b.orderMap[oldID]
 	if !ok {
-		return nil
+		return nil, nil
 	}
 
 	// Remove old
@@ -180,7 +189,7 @@ func (b *Book) ReplaceOrder(oldID uint64, newPrice float64, newShares int32) *Or
 		delete(b.orderMap, e.ID)
 	}
 
-	return newOrder
+	return newOrder, evicted
 }
 
 // AllOrders returns all orders in the book (for persistence).

@@ -19,7 +19,7 @@ type Order struct {
 	Side     Side
 	Price    float64
 	Shares   int32
-	Priority int32 // time priority within a price level
+	Priority int32  // time priority within a price level
 	MPID     string // market participant ID, empty for anonymous
 }
 
@@ -47,6 +47,13 @@ var matchCounter uint64
 // NextMatchNumber returns a globally unique trade match number.
 func NextMatchNumber() uint64 {
 	return atomic.AddUint64(&matchCounter, 1)
+}
+
+// ReserveMatchNumbers takes a block of n consecutive match numbers and returns
+// the first. One aggressive event's executions number consecutively even while
+// other symbols' runners draw match numbers concurrently.
+func ReserveMatchNumbers(n int) uint64 {
+	return atomic.AddUint64(&matchCounter, uint64(n)) - uint64(n) + 1
 }
 
 // SetMatchCounter sets the match counter (for restoring from persistence).

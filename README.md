@@ -230,6 +230,11 @@ go build -o feedsim ./cmd/feedsim
 | `-database-url` | `DATABASE_URL` | `postgres://postgres:postgres@localhost:5432/feedsim?sslmode=disable` | PostgreSQL connection URL |
 | `-seed` | `FEED_SEED` | `0` (random) | PRNG seed for reproducibility |
 | `-send-buffer` | `SEND_BUFFER` | `4096` | Per-client WebSocket send buffer size |
+| `-regimes` | `FEED_REGIMES` | `true` | Behaviour regimes on/off (`false`/`off` disables all four, whatever the rates) |
+| `-regime-sweep-rate` | `REGIME_SWEEP_RATE` | `0.002` | Per-step probability of a multi-level sweep (`0` = off) |
+| `-regime-iceberg-rate` | `REGIME_ICEBERG_RATE` | `0.001` | Per-step probability of starting an iceberg (`0` = off) |
+| `-regime-fleeting-rate` | `REGIME_FLEETING_RATE` | `0.004` | Per-step probability of a fleeting add/cancel burst (`0` = off) |
+| `-regime-large-rate` | `REGIME_LARGE_RATE` | `0.001` | Per-step probability of placing a large resting order (`0` = off) |
 | `-trade-retention` | `TRADE_RETENTION_DAYS` | `2` | Live trade-log retention in days, tuned to the 2 GiB budget (`0` = keep forever) |
 | `-archive-dir` | `ARCHIVE_DIR` | `""` | Directory for cold trade archives (empty = archiving disabled) |
 | `-archive-after` | `ARCHIVE_AFTER_HOURS` | `24` | Archive trades older than this many hours |
@@ -367,6 +372,19 @@ Each tick, the simulator performs 1-10 weighted random actions on the book:
 | Replenish | 20% | Add liquidity 1-5 ticks from mid |
 
 The book maintains 10 price levels per side with price-time priority. Orders are optionally attributed to 8 market maker MPIDs (GSCO, MSCO, JPMS, etc.).
+
+### Behaviour Regimes
+
+On top of the random actions above, four seeded regimes (`internal/orderbook/regimes.go`) produce the order-flow shapes a flow analyser looks for. Each is gated by a per-step probability; a step is one tick of a symbol (every 100 ms for the 29 normal symbols, 1-50 ms for BLITZ, so BLITZ sees them proportionally more often). Rates of `0`, or `FEED_REGIMES=off`, switch them off.
+
+| Regime | Default rate / step | ≈ per normal symbol | Wire signature |
+|--------|--------------------|---------------------|----------------|
+| Sweep | `0.002` | one per 50 s | One aggressive order takes the whole best level and continues into 1-3 more: a run of `order_executed` against one side spanning ≥ 2 prices, sharing one timestamp, with consecutive match numbers. The last level reached is only partly taken, so a side is never emptied, and a level holding an iceberg or large order is never swept. |
+| Iceberg | `0.001` | one per 100 s | Two displayed slices of 200-500 shares join the touch (improving it by a tick when the spread allows) backed by a hidden reserve of 4x the level's displayed size. While the level is the touch an aggressor trades against it on ~60% of steps; each slice executed away is reloaded by a new `add_order` at the same price microseconds later (≪ 5 ms), so the level absorbs several times its opening size while it holds. Retired (slices pulled) if it loses the touch or after 200 steps. |
+| Fleeting | `0.004` | one per 25 s | A burst of 2-6 adds 1-3 ticks from mid on one side, every one deleted (`order_delete`) within the same batch, i.e. microseconds after it was added (≪ 50 ms). |
+| Large order | `0.001` | one per 100 s | One order of 8 000-25 000 shares (≥ 10x the 100-1 000 share ordinary add) joins the touch and rests 30-150 steps. Then half are pulled (`order_delete`) and half are traded away by aggressive chunks of 1 000-5 000 shares that take everything ahead of it (pulled instead if that has not finished within 100 steps). Ordinary flow can also fill it meanwhile. |
+
+Random cancels and replaces leave regime orders alone; executions may still reach them. Regime state is not part of the persisted snapshot: after a restart, the orders a regime placed rest on as ordinary orders.
 
 ### Trade Persistence
 
