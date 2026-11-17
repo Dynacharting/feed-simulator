@@ -24,6 +24,10 @@ const (
 	actionReplenish = 4
 )
 
+// partialCancelProb is the share of cancels (of orders holding two or more
+// lots) that cancel only part of the order (X) rather than all of it (D).
+const partialCancelProb = 0.35
+
 // Market maker MPIDs for attributed orders.
 var mpids = []string{"GSCO", "MSCO", "JPMS", "CITI", "BARK", "SUSQ", "VIRT", "CITD"}
 
@@ -33,6 +37,11 @@ type Simulator struct {
 	book       *Book
 	locateCode uint16
 	tickSize   float64
+
+	// execGroup numbers aggressive orders so their executions can be stamped
+	// with one timestamp (itch.Message.ExecGroup). Local, not persisted: it
+	// only has to distinguish adjacent aggressors within one batch.
+	execGroup uint64
 }
 
 // NewSimulator creates a new order book simulator.
@@ -213,6 +222,22 @@ func (s *Simulator) doCancel() []itch.Message {
 		return nil
 	}
 
+	// Partial cancel: reduce a multi-lot order by a whole number of lots,
+	// leaving at least one lot resting, and report it as OrderCancel (X) with
+	// the cancelled shares. A full cancel stays OrderDelete (D).
+	if o.Shares >= 200 && s.rng.Float64() < partialCancelProb {
+		cancelled := int32(s.rng.IntRange(1, int(o.Shares/100)-1)) * 100
+		s.book.ReduceOrder(o.ID, cancelled)
+		return []itch.Message{
+			{
+				Type:        itch.MsgOrderCancel,
+				StockLocate: s.locateCode,
+				OrderRef:    o.ID,
+				Shares:      cancelled,
+			},
+		}
+	}
+
 	orderID := o.ID
 	removed := s.book.RemoveOrder(orderID)
 	if removed == nil {
@@ -274,7 +299,15 @@ func (s *Simulator) doReplace(currentPrice float64) []itch.Message {
 	}
 }
 
-// doTrade executes an aggressive order that crosses the spread.
+// doTrade executes an aggressive order that crosses the spread against the
+// first resting order at the touch.
+//
+// A displayed fill is reported as OrderExecuted (E) alone. ITCH's Trade (P) is
+// for executions against *non-displayed* orders, and every order this book
+// holds is displayed, so emitting P here would report the same fill twice
+// under one match number. The aggressor side, which E does not carry, rides on
+// the simulator-internal Aggressor field for the trade log; ExecGroup ties the
+// executions of one aggressive order together so they share a timestamp.
 func (s *Simulator) doTrade() []itch.Message {
 	bestBid := s.book.BestBid()
 	bestAsk := s.book.BestAsk()
@@ -282,80 +315,37 @@ func (s *Simulator) doTrade() []itch.Message {
 		return nil
 	}
 
-	var msgs []itch.Message
-
-	// Randomly pick aggressor side
+	// Randomly pick aggressor side: a buy aggressor hits the ask, a sell
+	// aggressor hits the bid.
+	aggressor := SideSell
+	var o *Order
 	if s.rng.Float64() < 0.5 {
-		// Buy aggressor hits the ask
-		o := s.book.RandomAskOrder(0) // best ask, first order
-		if o == nil {
-			return nil
-		}
-		tradeShares := int32(s.rng.IntRange(1, int(o.Shares/100))) * 100
-		if tradeShares <= 0 {
-			tradeShares = o.Shares
-		}
-
-		matchNum := NextMatchNumber()
-
-		// Order executed message
-		msgs = append(msgs, itch.Message{
-			Type:        itch.MsgOrderExecuted,
-			StockLocate: s.locateCode,
-			OrderRef:    o.ID,
-			Shares:      tradeShares,
-			MatchNumber: matchNum,
-			Price:       o.Price,
-		})
-
-		// Trade message
-		msgs = append(msgs, itch.Message{
-			Type:        itch.MsgTrade,
-			StockLocate: s.locateCode,
-			OrderRef:    o.ID,
-			Shares:      tradeShares,
-			Price:       o.Price,
-			MatchNumber: matchNum,
-			Side:        byte(SideBuy),
-		})
-
-		s.book.ReduceOrder(o.ID, tradeShares)
+		aggressor = SideBuy
+		o = s.book.RandomAskOrder(0) // best ask, first order
 	} else {
-		// Sell aggressor hits the bid
-		o := s.book.RandomBidOrder(0) // best bid, first order
-		if o == nil {
-			return nil
-		}
-		tradeShares := int32(s.rng.IntRange(1, int(o.Shares/100))) * 100
-		if tradeShares <= 0 {
-			tradeShares = o.Shares
-		}
-
-		matchNum := NextMatchNumber()
-
-		msgs = append(msgs, itch.Message{
-			Type:        itch.MsgOrderExecuted,
-			StockLocate: s.locateCode,
-			OrderRef:    o.ID,
-			Shares:      tradeShares,
-			MatchNumber: matchNum,
-			Price:       o.Price,
-		})
-
-		msgs = append(msgs, itch.Message{
-			Type:        itch.MsgTrade,
-			StockLocate: s.locateCode,
-			OrderRef:    o.ID,
-			Shares:      tradeShares,
-			Price:       o.Price,
-			MatchNumber: matchNum,
-			Side:        byte(SideSell),
-		})
-
-		s.book.ReduceOrder(o.ID, tradeShares)
+		o = s.book.RandomBidOrder(0) // best bid, first order
+	}
+	if o == nil {
+		return nil
+	}
+	tradeShares := int32(s.rng.IntRange(1, int(o.Shares/100))) * 100
+	if tradeShares <= 0 {
+		tradeShares = o.Shares
 	}
 
-	return msgs
+	s.execGroup++
+	msg := itch.Message{
+		Type:        itch.MsgOrderExecuted,
+		StockLocate: s.locateCode,
+		OrderRef:    o.ID,
+		Shares:      tradeShares,
+		MatchNumber: NextMatchNumber(),
+		Price:       o.Price, // not on the wire (E has no price); used by the trade log
+		Aggressor:   byte(aggressor),
+		ExecGroup:   s.execGroup,
+	}
+	s.book.ReduceOrder(o.ID, tradeShares)
+	return []itch.Message{msg}
 }
 
 // doReplenish adds liquidity at 1-5 ticks from mid.
