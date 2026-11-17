@@ -10,8 +10,9 @@ import (
 // D10). Resting orders are priced off the random walk, which runs away from the
 // book between trades; without clampPassive a buy lands at or through the ask
 // (or a sell through the bid) and the book stays crossed. This drives a long
-// seeded walk with every regime at a high rate and checks, after every Step,
-// both the simulator's own book and the book a consumer rebuilds from the wire.
+// seeded walk with every regime at a high rate and checks the simulator's own
+// book after every Step and the book a consumer rebuilds from the wire after
+// every message.
 func TestBookNeverCrosses(t *testing.T) {
 	sim := newTestSimulator()
 	sim.SetRegimes(RegimeConfig{SweepRate: 0.05, IcebergRate: 0.03, FleetingRate: 0.05, LargeRate: 0.03})
@@ -30,15 +31,18 @@ func TestBookNeverCrosses(t *testing.T) {
 		}
 		msgs := sim.Step(price, 3)
 		stamp(msgs, int64(i)*tickNs)
-		for _, m := range msgs {
+		// The wire book is checked after every message, not just every Step:
+		// a fleeting burst adds and deletes within one batch, so a cross it
+		// causes is gone by the Step's end but a consumer still sees it.
+		for j, m := range msgs {
 			wire.apply(t, m)
+			if bid, ask := wire.touch('B'), wire.touch('S'); bid > 0 && ask > 0 && bid >= ask {
+				t.Fatalf("step %d msg %d (%c): wire-built book crossed: bid %.2f >= ask %.2f", i, j, m.Type, bid, ask)
+			}
 		}
 		b := sim.Book()
 		if bid, ask := b.BestBid(), b.BestAsk(); bid > 0 && ask > 0 && bid >= ask {
 			t.Fatalf("step %d: simulator book crossed: bid %.2f >= ask %.2f (walk %.2f)", i, bid, ask, price)
-		}
-		if bid, ask := wire.touch('B'), wire.touch('S'); bid > 0 && ask > 0 && bid >= ask {
-			t.Fatalf("step %d: wire-built book crossed: bid %.2f >= ask %.2f", i, bid, ask)
 		}
 	}
 }

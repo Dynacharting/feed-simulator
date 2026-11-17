@@ -296,7 +296,7 @@ func (s *Simulator) startIceberg() []itch.Message {
 			price = snapPrice(ask-s.tickSize, s.tickSize)
 		}
 	}
-	price = s.clampPassive(side, price)
+	_ = 0
 	peak := int32(s.rng.IntRange(icebergPeakMinLots, icebergPeakMaxLots)) * 100
 	ice := &iceberg{side: side, price: price, peak: peak}
 	s.ice = ice
@@ -481,7 +481,7 @@ func (s *Simulator) startLarge() []itch.Message {
 	if price == 0 {
 		return nil
 	}
-	_ = 0
+	price = s.clampPassive(side, price)
 	o := &Order{ID: NextOrderID(), Locate: s.locateCode, Side: side, Price: price,
 		Shares: int32(s.rng.IntRange(largeMinLots, largeMaxLots)) * 100}
 	if s.rng.Float64() < 0.3 {
