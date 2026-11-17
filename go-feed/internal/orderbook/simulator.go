@@ -287,12 +287,12 @@ func (s *Simulator) doReplace(currentPrice float64) []itch.Message {
 	}
 	newShares := int32(s.rng.IntRange(1, 10)) * 100
 
-	newOrder := s.book.ReplaceOrder(oldID, newPrice, newShares)
+	newOrder, evicted := s.book.ReplaceOrderEvicting(oldID, newPrice, newShares)
 	if newOrder == nil {
 		return nil
 	}
 
-	return []itch.Message{
+	msgs := []itch.Message{
 		{
 			Type:         itch.MsgOrderReplace,
 			StockLocate:  s.locateCode,
@@ -302,6 +302,13 @@ func (s *Simulator) doReplace(currentPrice float64) []itch.Message {
 			Price:        newPrice,
 		},
 	}
+	// A replace onto a new level can trim the side past MaxLevels, exactly as
+	// an add can; publish those deletes (the replacement's own included, when
+	// its level was the one trimmed) so a wire-built book does not keep them.
+	for _, e := range evicted {
+		msgs = append(msgs, itch.Message{Type: itch.MsgOrderDelete, StockLocate: s.locateCode, OrderRef: e.ID})
+	}
+	return msgs
 }
 
 // doTrade executes an aggressive order that crosses the spread against the

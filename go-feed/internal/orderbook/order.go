@@ -19,7 +19,7 @@ type Order struct {
 	Side     Side
 	Price    float64
 	Shares   int32
-	Priority int32 // time priority within a price level
+	Priority int32  // time priority within a price level
 	MPID     string // market participant ID, empty for anonymous
 }
 
