@@ -296,6 +296,7 @@ func (s *Simulator) startIceberg() []itch.Message {
 			price = snapPrice(ask-s.tickSize, s.tickSize)
 		}
 	}
+	price = s.clampPassive(side, price)
 	peak := int32(s.rng.IntRange(icebergPeakMinLots, icebergPeakMaxLots)) * 100
 	ice := &iceberg{side: side, price: price, peak: peak}
 	s.ice = ice
@@ -322,6 +323,11 @@ func (s *Simulator) startIceberg() []itch.Message {
 }
 
 func (s *Simulator) addIcebergChild(shares int32) []itch.Message {
+	if s.clampPassive(s.ice.side, s.ice.price) != s.ice.price {
+		// The opposite side has reached the iceberg's price: a child here
+		// would cross the book, so it is not shown.
+		return nil
+	}
 	o := &Order{ID: NextOrderID(), Locate: s.locateCode, Side: s.ice.side, Price: s.ice.price, Shares: shares}
 	msgs := s.addMsgs(o, s.book.AddOrder(o))
 	if s.book.GetOrder(o.ID) != nil {
@@ -449,6 +455,7 @@ func (s *Simulator) doFleeting(currentPrice float64) []itch.Message {
 		if price < s.tickSize {
 			price = s.tickSize
 		}
+		price = s.clampPassive(side, price)
 		o := &Order{ID: NextOrderID(), Locate: s.locateCode, Side: side, Price: price,
 			Shares: int32(s.rng.IntRange(1, 5)) * 100}
 		msgs = append(msgs, s.addMsgs(o, s.book.AddOrder(o))...)
@@ -474,6 +481,7 @@ func (s *Simulator) startLarge() []itch.Message {
 	if price == 0 {
 		return nil
 	}
+	price = s.clampPassive(side, price)
 	o := &Order{ID: NextOrderID(), Locate: s.locateCode, Side: side, Price: price,
 		Shares: int32(s.rng.IntRange(largeMinLots, largeMaxLots)) * 100}
 	if s.rng.Float64() < 0.3 {
