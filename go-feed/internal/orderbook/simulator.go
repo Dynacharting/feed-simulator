@@ -42,6 +42,11 @@ type Simulator struct {
 	// with one timestamp (itch.Message.ExecGroup). Local, not persisted: it
 	// only has to distinguish adjacent aggressors within one batch.
 	execGroup uint64
+
+	// Behaviour regimes (regimes.go). Zero rates = off.
+	regimes RegimeConfig
+	ice     *iceberg
+	large   *largeOrder
 }
 
 // NewSimulator creates a new order book simulator.
@@ -137,7 +142,7 @@ func (s *Simulator) Step(currentPrice float64, numActions int) []itch.Message {
 		msgs = append(msgs, actionMsgs...)
 	}
 
-	return msgs
+	return append(msgs, s.stepRegimes(currentPrice)...)
 }
 
 // doAdd places a new limit order 1-10 ticks from mid.
@@ -218,7 +223,7 @@ func (s *Simulator) doCancel() []itch.Message {
 	} else {
 		o = s.book.RandomAskOrder(idx - totalBid)
 	}
-	if o == nil {
+	if o == nil || s.isRegimeOrder(o.ID) {
 		return nil
 	}
 
@@ -269,7 +274,7 @@ func (s *Simulator) doReplace(currentPrice float64) []itch.Message {
 	} else {
 		o = s.book.RandomAskOrder(idx - totalBid)
 	}
-	if o == nil {
+	if o == nil || s.isRegimeOrder(o.ID) {
 		return nil
 	}
 
@@ -333,19 +338,7 @@ func (s *Simulator) doTrade() []itch.Message {
 		tradeShares = o.Shares
 	}
 
-	s.execGroup++
-	msg := itch.Message{
-		Type:        itch.MsgOrderExecuted,
-		StockLocate: s.locateCode,
-		OrderRef:    o.ID,
-		Shares:      tradeShares,
-		MatchNumber: NextMatchNumber(),
-		Price:       o.Price, // not on the wire (E has no price); used by the trade log
-		Aggressor:   byte(aggressor),
-		ExecGroup:   s.execGroup,
-	}
-	s.book.ReduceOrder(o.ID, tradeShares)
-	return []itch.Message{msg}
+	return s.executeEvent(aggressor, []fill{{o, tradeShares}})
 }
 
 // doReplenish adds liquidity at 1-5 ticks from mid.

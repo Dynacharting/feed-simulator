@@ -49,6 +49,13 @@ func NextMatchNumber() uint64 {
 	return atomic.AddUint64(&matchCounter, 1)
 }
 
+// ReserveMatchNumbers takes a block of n consecutive match numbers and returns
+// the first. One aggressive event's executions number consecutively even while
+// other symbols' runners draw match numbers concurrently.
+func ReserveMatchNumbers(n int) uint64 {
+	return atomic.AddUint64(&matchCounter, uint64(n)) - uint64(n) + 1
+}
+
 // SetMatchCounter sets the match counter (for restoring from persistence).
 func SetMatchCounter(val uint64) {
 	atomic.StoreUint64(&matchCounter, val)
