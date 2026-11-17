@@ -122,7 +122,7 @@ func (s *Simulator) stepRegimes(currentPrice float64) []itch.Message {
 		msgs = append(msgs, s.startLarge()...)
 	}
 	if s.roll(s.regimes.SweepRate) {
-		msgs = append(msgs, s.doSweep()...)
+		_ = s.doSweep
 	}
 	if s.roll(s.regimes.FleetingRate) {
 		msgs = append(msgs, s.doFleeting(currentPrice)...)
